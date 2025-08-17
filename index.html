@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Fruitbox Home</title>
+<style>
+  body { font-family: sans-serif; text-align: center; background-color: transparent; color: black; margin: 0; padding: 0; }
+  .home-screen { display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; }
+  .mode-button { padding: 20px 40px; margin: 10px; font-size: 24px; cursor: pointer; border: none; border-radius: 10px; background-color: #f48fb1; color: white; transition: 0.2s; }
+  .mode-button:hover { background-color: #ec407a; }
+  .game-container { display: none; position: relative; }
+  .container { display: flex; flex-direction: row; align-items: flex-start; justify-content: flex-start; }
+  .grid { display: inline-grid; grid-template-columns: repeat(10, 50px); row-gap: 0; column-gap: 0; position: relative; margin-right: 20px; }
+  .cell { width: 50px; height: 50px; background: transparent; display: flex; align-items: center; justify-content: center; cursor: pointer; font-weight: bold; font-size: 20px; border-radius: 0; user-select: none; margin: 0; padding: 0; border: none; position: relative; color: white; }
+  .cell span { position: relative; z-index: 2; }
+  .cell.red-circle::after { content: ''; position: absolute; top: 50%; left: 50%; width: 80%; height: 80%; border-radius: 50%; background: red; transform: translate(-50%, -50%); z-index: 1; pointer-events: none; }
+  #buttonsContainer { margin-top: 10px; }
+  #buttonsContainer button { margin-right: 10px; padding: 10px 20px; font-size: 16px; }
+  #timerPointsContainer { display: flex; gap: 20px; align-items: center; margin-top: 10px; justify-content: flex-start; }
+  #message { margin-top: 10px; font-size: 16px; }
+  .selection-box { position: absolute; border: 2px dashed #add8e6; background-color: rgba(173, 216, 230, 0.2); pointer-events: none; z-index: 9999; }
+  .scoreboard { position: absolute; top: 10px; right: 10px; text-align: left; }
+</style>
+</head>
+<body>
+<div class="home-screen" id="homeScreen">
+  <h1>Fruitbox</h1>
+  <button class="mode-button" onclick="startGame('classic')">Classic</button>
+  <button class="mode-button" onclick="startGame('speed')">Speed Run (1 min)</button>
+</div>
+
+<div class="game-container" id="gameContainer">
+  <div class="container">
+    <div>
+      <div class="grid" id="grid"></div>
+      <div id="timerPointsContainer">
+        <div id="timerDisplay"></div>
+        <div id="pointsContainer">Points: <span id="points">0</span></div>
+      </div>
+      <div id="buttonsContainer">
+        <button id="homeButton" onclick="returnHome()">Home</button>
+        <button id="resetButton" onclick="resetGrid()">Reset Grid</button>
+      </div>
+      <p id="message"></p>
+    </div>
+    <div class="scoreboard">
+      <h3>Top Scores</h3>
+      <ol id="topScores"></ol>
+    </div>
+  </div>
+</div>
+
+<script>
+let ROWS = 8;
+let COLS = 10;
+const TARGET_SUM = 10;
+let grid = [];
+let selected = [];
+let points = 0;
+let topScores = [];
+let messageTimeout = null;
+let timerInterval = null;
+let currentMode = null; // track current mode
+
+let isMouseDown = false;
+let selectionBox = null;
+
+function startGame(mode) {
+  currentMode = mode;
+  document.getElementById('homeScreen').style.display = 'none';
+  document.getElementById('gameContainer').style.display = 'block';
+  generateGrid();
+  renderGrid();
+
+  const timerDisplay = document.getElementById('timerDisplay');
+  if(mode === 'speed') {
+    startTimer(60);
+    timerDisplay.style.display = 'block';
+  } else {
+    if(timerInterval) clearInterval(timerInterval);
+    timerDisplay.style.display = 'none';
+    timerDisplay.innerText = '';
+  }
+}
+
+function returnHome() {
+  if(timerInterval) clearInterval(timerInterval);
+  document.getElementById('gameContainer').style.display = 'none';
+  document.getElementById('homeScreen').style.display = 'flex';
+  resetGrid();
+  currentMode = null;
+}
+
+function startTimer(seconds) {
+  if(timerInterval) clearInterval(timerInterval);
+  const timerDisplay = document.getElementById('timerDisplay');
+  let timeLeft = seconds;
+  timerDisplay.innerText = `Time: ${timeLeft}s`;
+  timerInterval = setInterval(() => {
+    timeLeft--;
+    timerDisplay.innerText = `Time: ${timeLeft}s`;
+    if(timeLeft <= 0){
+      clearInterval(timerInterval);
+      document.getElementById('message').innerText = `Time's up! You scored ${points} points.`;
+      updateTopScores(points);
+    }
+  }, 1000);
+}
+
+function generateGrid() {
+  grid = [];
+  for (let i=0; i<ROWS; i++) {
+    let row = [];
+    for (let j=0; j<COLS; j++) {
+      row.push(Math.floor(Math.random()*9)+1);
+    }
+    grid.push(row);
+  }
+}
+
+function renderGrid() {
+  const gridDiv = document.getElementById('grid');
+  gridDiv.innerHTML = '';
+  gridDiv.style.position = 'relative';
+
+  for (let i=0;i<ROWS;i++) {
+    for (let j=0;j<COLS;j++) {
+      const cell = document.createElement('button');
+      cell.className = 'cell';
+      if(grid[i][j] !== null) cell.classList.add('red-circle');
+      cell.disabled = grid[i][j] === null;
+      const span = document.createElement('span');
+      span.innerText = grid[i][j] || '';
+      cell.appendChild(span);
+      cell.dataset.row = i;
+      cell.dataset.col = j;
+      gridDiv.appendChild(cell);
+    }
+  }
+}
+
+document.getElementById('grid').addEventListener('mousedown', startSelection);
+document.getElementById('grid').addEventListener('mousemove', updateSelection);
+document.getElementById('grid').addEventListener('mouseup', endSelection);
+
+function startSelection(e) {
+  if(e.target.classList.contains('cell') && !e.target.disabled){
+    isMouseDown = true;
+    selected = [];
+    addToSelection(e.target);
+    createSelectionBox(e);
+  }
+}
+
+function updateSelection(e) {
+  if(!isMouseDown) return;
+  updateSelectionBox(e);
+  const cell = document.elementFromPoint(e.clientX, e.clientY);
+  if(cell && cell.classList.contains('cell') && !selected.includes(cell)){
+    addToSelection(cell);
+  }
+}
+
+function endSelection(e) {
+  if(!isMouseDown) return;
+  isMouseDown = false;
+  removeSelectionBox();
+
+  let sum = selected.reduce((acc, cell)=>acc+parseInt(cell.innerText),0);
+  if(sum === TARGET_SUM){
+    points += selected.length;
+    document.getElementById('points').innerText = points;
+    selected.forEach(cell => {
+      const row = cell.dataset.row;
+      const col = cell.dataset.col;
+      grid[row][col] = null;
+    });
+    renderGrid();
+  } else {
+    showMessage("Invalid selection. Sum must equal 10.");
+  }
+  selected = [];
+}
+
+function addToSelection(cell) {
+  selected.push(cell);
+  cell.style.outline = "2px solid yellow";
+}
+
+function createSelectionBox(e){
+  selectionBox = document.createElement('div');
+  selectionBox.className = 'selection-box';
+  document.body.appendChild(selectionBox);
+  selectionBox.style.left = e.pageX + 'px';
+  selectionBox.style.top = e.pageY + 'px';
+  selectionBox.startX = e.pageX;
+  selectionBox.startY = e.pageY;
+}
+
+function updateSelectionBox(e){
+  if(!selectionBox) return;
+  const x1 = Math.min(e.pageX, selectionBox.startX);
+  const y1 = Math.min(e.pageY, selectionBox.startY);
+  const x2 = Math.max(e.pageX, selectionBox.startX);
+  const y2 = Math.max(e.pageY, selectionBox.startY);
+  selectionBox.style.left = x1 + 'px';
+  selectionBox.style.top = y1 + 'px';
+  selectionBox.style.width = (x2-x1) + 'px';
+  selectionBox.style.height = (y2-y1) + 'px';
+}
+
+function removeSelectionBox(){
+  if(selectionBox){
+    document.body.removeChild(selectionBox);
+    selectionBox = null;
+  }
+}
+
+function resetGrid(){
+  generateGrid();
+  renderGrid();
+  points = 0;
+  document.getElementById('points').innerText = points;
+  document.getElementById('message').innerText = '';
+
+  if(currentMode === 'speed') {
+    startTimer(60); // reset timer back to 60
+  } else {
+    if(timerInterval) clearInterval(timerInterval);
+  }
+}
+
+function showMessage(msg){
+  clearTimeout(messageTimeout);
+  document.getElementById('message').innerText = msg;
+  messageTimeout = setTimeout(()=>{
+    document.getElementById('message').innerText = '';
+  },2000);
+}
+
+function updateTopScores(score){
+  topScores.push(score);
+  topScores.sort((a,b)=>b-a);
+  topScores = topScores.slice(0,5);
+
+  const list = document.getElementById('topScores');
+  list.innerHTML = '';
+  topScores.forEach(s=>{
+    const li = document.createElement('li');
+    li.innerText = s;
+    list.appendChild(li);
+  });
+}
+</script>
+</body>
+</html>
+
